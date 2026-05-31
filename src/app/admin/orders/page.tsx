@@ -1,0 +1,678 @@
+﻿"use client";
+
+/**
+ * LIKEFOOD - Premium Orders Management Module
+ * Phase 2: Enhanced Operations UX
+ */
+
+import { useCallback, useEffect, useState } from "react";
+import { 
+  CalendarDays, 
+  ClipboardList, 
+  Download, 
+  Eye, 
+  Loader2, 
+  RefreshCw, 
+  Search,
+  X,
+  Package,
+  CreditCard,
+  User,
+  MapPin,
+  Clock
+} from "lucide-react";
+import { toast } from "sonner";
+import { formatPrice } from "@/lib/currency";
+
+interface Order {
+  id: number;
+  userId: number;
+  total: number;
+  status: string;
+  createdAt: string;
+  userEmail?: string;
+  userName?: string;
+  userPhone?: string;
+  itemCount?: number;
+  shippingAddress?: string;
+  paymentMethod?: string;
+}
+
+interface OrderDetail extends Order {
+  items?: Array<{
+    id: number;
+    name: string;
+    price: number;
+    quantity: number;
+    image?: string;
+  }>;
+  shipping?: {
+    carrier?: string;
+    trackingNumber?: string;
+    estimatedDelivery?: string;
+  };
+}
+
+const STATUS_CONFIG = [
+  { key: 'ALL', label: 'All', color: 'bg-zinc-500/10 text-slate-500' },
+  { key: 'PENDING', label: 'Pending', color: 'bg-amber-100 text-amber-700' },
+  { key: 'CONFIRMED', label: 'Confirmed', color: 'bg-blue-100 text-blue-700' },
+  { key: 'PROCESSING', label: 'Processing', color: 'bg-purple-100 text-purple-700' },
+  { key: 'SHIPPING', label: 'Shipping', color: 'bg-cyan-100 text-cyan-700' },
+  { key: 'DELIVERED', label: 'Delivered', color: 'bg-emerald-100 text-emerald-700' },
+  { key: 'COMPLETED', label: 'Completed', color: 'bg-emerald-100 text-emerald-700' },
+  { key: 'CANCELLED', label: 'Cancelled', color: 'bg-red-100 text-red-700' },
+];
+
+const NEXT_ACTIONS: Record<string, string[]> = {
+  PENDING: ['CONFIRMED', 'CANCELLED'],
+  CONFIRMED: ['PROCESSING', 'CANCELLED'],
+  PROCESSING: ['SHIPPING', 'CANCELLED'],
+  SHIPPING: ['DELIVERED'],
+  DELIVERED: ['COMPLETED'],
+};
+
+const PAGE_SIZE = 15;
+
+const getStatusConfig = (statusKey: string) => {
+  return STATUS_CONFIG.find(s => s.key === statusKey) || STATUS_CONFIG[0];
+};
+
+export default function AdminOrdersPage() {
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [status, setStatus] = useState('ALL');
+  const [search, setSearch] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
+  const [updatingId, setUpdatingId] = useState<number | null>(null);
+  
+  // Selection & Drawer
+  const [selectedOrders, setSelectedOrders] = useState<Set<number>>(new Set());
+  const [bulkStatus, setBulkStatus] = useState('');
+  const [selectedOrder, setSelectedOrder] = useState<OrderDetail | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(false);
+
+  const debouncedSearch = search;
+
+  const loadOrders = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const params = new URLSearchParams({ 
+        page: page.toString(), 
+        limit: PAGE_SIZE.toString() 
+      });
+      if (status !== 'ALL') params.set('status', status);
+      if (debouncedSearch) params.set('search', debouncedSearch);
+      if (dateFrom) params.set('dateFrom', dateFrom);
+      if (dateTo) params.set('dateTo', dateTo);
+      
+      const response = await fetch(`/api/orders?${params.toString()}`);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data?.error || 'Không thể tải danh sách đơn hàng');
+      
+      setOrders(Array.isArray(data.orders) ? data.orders : []);
+      setTotal(data.pagination?.total || data.total || 0);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Không thể tải danh sách đơn hàng');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [page, status, debouncedSearch, dateFrom, dateTo]);
+
+  useEffect(() => {
+    void loadOrders();
+  }, [loadOrders]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [status, debouncedSearch, dateFrom, dateTo]);
+
+  const updateStatus = async (orderId: number, nextStatus: string) => {
+    setUpdatingId(orderId);
+    try {
+      const response = await fetch(`/api/admin/orders/${orderId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: nextStatus }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data?.error || 'Không thể cập nhật trạng thái');
+      
+      toast.success(`Order #${String(orderId).slice(-6)} → ${nextStatus}`);
+      await loadOrders();
+      if (selectedOrder?.id === orderId) {
+        loadOrderDetail(orderId);
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Không thể cập nhật trạng thái');
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
+  const applyBulkStatus = async () => {
+    if (!bulkStatus || selectedOrders.size === 0) return;
+    const ids = Array.from(selectedOrders);
+    try {
+      await Promise.all(ids.map(id => updateStatus(id, bulkStatus)));
+      setSelectedOrders(new Set());
+      setBulkStatus('');
+    } catch {
+      toast.error('Một số đơn hàng không thể cập nhật');
+    }
+  };
+
+  const loadOrderDetail = async (orderId: number) => {
+    setDetailLoading(true);
+    try {
+      const response = await fetch(`/api/orders/${orderId}`);
+      const data = await response.json().catch(() => ({}));
+      if (response.ok) {
+        setSelectedOrder(data);
+      }
+    } catch (error) {
+      console.error('Failed to load order detail:', error);
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  const openDrawer = (order: Order) => {
+    setSelectedOrder(null);
+    setDrawerOpen(true);
+    loadOrderDetail(order.id);
+  };
+
+  const closeDrawer = () => {
+    setDrawerOpen(false);
+    setSelectedOrder(null);
+  };
+
+  // Selection handlers
+  const toggleSelectAll = () => {
+    if (selectedOrders.size === orders.length) {
+      setSelectedOrders(new Set());
+    } else {
+      setSelectedOrders(new Set(orders.map(o => o.id)));
+    }
+  };
+
+  const toggleSelect = (orderId: number) => {
+    const newSelected = new Set(selectedOrders);
+    if (newSelected.has(orderId)) {
+      newSelected.delete(orderId);
+    } else {
+      newSelected.add(orderId);
+    }
+    setSelectedOrders(newSelected);
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-semibold text-slate-800">Orders</h1>
+          <p className="text-sm text-slate-400 mt-0.5">Manage and track all orders</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <a 
+            href="/api/admin/export?type=orders" 
+            download
+            className="px-3.5 py-2 rounded-md border border-slate-200 bg-slate-50 text-sm font-medium text-slate-600 hover:bg-white transition-colors flex items-center gap-2"
+          >
+            <Download className="h-4 w-4" />
+            Export
+          </a>
+          <button 
+            onClick={() => void loadOrders()}
+            disabled={isLoading}
+            className="px-3.5 py-2 rounded-md border border-slate-200 bg-slate-50 text-sm font-medium text-slate-600 hover:bg-white transition-colors flex items-center gap-2"
+          >
+            <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+        </div>
+      </div>
+
+      {/* Filter Bar */}
+      <div className="rounded-lg border border-slate-200/50 bg-white p-3">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          {/* Search */}
+          <div className="relative flex-1 max-w-md">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Search order ID, phone, email..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="h-9 w-full rounded-md border border-slate-200 bg-slate-50 pl-9 pr-8 text-sm text-slate-800 placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none"
+            />
+            {search && (
+              <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+
+          {/* Date Range */}
+          <div className="flex items-center gap-2">
+            <CalendarDays className="h-4 w-4 text-slate-400" />
+            <input 
+              type="date" 
+              value={dateFrom} 
+              onChange={(e) => setDateFrom(e.target.value)}
+              className="h-9 rounded-md border border-slate-200 bg-slate-50 px-3 text-sm text-slate-800 focus:border-emerald-500 focus:outline-none"
+            />
+            <span className="text-slate-400">to</span>
+            <input 
+              type="date" 
+              value={dateTo} 
+              onChange={(e) => setDateTo(e.target.value)}
+              className="h-9 rounded-md border border-slate-200 bg-slate-50 px-3 text-sm text-slate-800 focus:border-emerald-500 focus:outline-none"
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Status Tabs */}
+      <div className="flex flex-wrap gap-2">
+        {STATUS_CONFIG.map((config) => (
+          <button
+            key={config.key}
+            onClick={() => setStatus(config.key)}
+            className={`px-3.5 py-2 rounded-full text-xs font-semibold uppercase tracking-wide transition-colors ${
+              status === config.key
+                ? 'bg-emerald-500 text-white'
+                : 'border border-slate-200 bg-slate-50/50 text-slate-500 hover:border-slate-300 hover:text-slate-700'
+            }`}
+          >
+            {config.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Bulk Actions Bar */}
+      {selectedOrders.size > 0 && (
+        <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-4 py-2.5 flex items-center justify-between">
+          <span className="text-sm font-medium text-blue-600">
+            {selectedOrders.size} selected
+          </span>
+          <div className="flex items-center gap-2">
+            <select 
+              value={bulkStatus}
+              onChange={(e) => setBulkStatus(e.target.value)}
+              className="h-8 rounded-md border border-slate-200 bg-slate-50 px-2 text-xs text-slate-800"
+            >
+              <option value="">Cập nhật trạng thái</option>
+              {['CONFIRMED','PROCESSING','SHIPPING','DELIVERED','COMPLETED','CANCELLED'].map(s => (
+                <option key={s} value={s}>→ {s}</option>
+              ))}
+            </select>
+            <button 
+              onClick={() => void applyBulkStatus()}
+              disabled={!bulkStatus}
+              className="h-8 px-3 rounded-md border border-blue-600/50 bg-blue-600/20 text-xs text-blue-300 hover:bg-blue-600/30 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Áp dụng
+            </button>
+            <button
+              onClick={() => { window.open('/api/admin/export?type=orders', '_blank'); toast.success('Đang xuất dữ liệu đơn hàng...'); }}
+              className="h-8 px-3 rounded-md border border-slate-200 bg-slate-50 text-xs text-slate-600 hover:bg-white transition-colors"
+            >
+              Xuất dữ liệu
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Table */}
+      <div className="rounded-lg border border-slate-200/50 bg-white overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-slate-200/50 bg-slate-50/50">
+                <th className="w-10 px-4 py-3">
+                  <input 
+                    type="checkbox" 
+                    checked={selectedOrders.size === orders.length && orders.length > 0}
+                    onChange={toggleSelectAll}
+                    className="rounded border-slate-300 bg-white text-emerald-600"
+                  />
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-400">Order</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-400">Customer</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-400">Items</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-400">Total</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-400">Status</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-400">Date</th>
+                <th className="w-20 px-4 py-3"></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200/50">
+              {isLoading ? (
+                Array.from({ length: 6 }).map((_, i) => (
+                  <tr key={i} className="animate-pulse">
+                    <td className="px-4 py-4"><div className="h-4 w-4 bg-white rounded" /></td>
+                    <td className="px-4 py-4"><div className="h-4 w-24 bg-white rounded" /></td>
+                    <td className="px-4 py-4"><div className="h-4 w-32 bg-white rounded" /></td>
+                    <td className="px-4 py-4"><div className="h-4 w-12 bg-white rounded" /></td>
+                    <td className="px-4 py-4"><div className="h-4 w-16 bg-white rounded" /></td>
+                    <td className="px-4 py-4"><div className="h-6 w-20 bg-white rounded-full" /></td>
+                    <td className="px-4 py-4"><div className="h-4 w-20 bg-white rounded" /></td>
+                    <td className="px-4 py-4"><div className="h-8 w-8 bg-white rounded" /></td>
+                  </tr>
+                ))
+              ) : orders.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="px-4 py-20 text-center">
+                    <ClipboardList className="mx-auto h-10 w-10 text-slate-400" />
+                    <h3 className="mt-4 text-sm font-medium text-slate-500">No orders found</h3>
+                    <p className="mt-1 text-xs text-slate-400">Try adjusting your filters</p>
+                  </td>
+                </tr>
+              ) : (
+                orders.map((order) => {
+                  const statusCfg = getStatusConfig(order.status);
+                  return (
+                    <tr 
+                      key={order.id} 
+                      className="transition-colors hover:bg-slate-50/30"
+                    >
+                      <td className="px-4 py-4">
+                        <input 
+                          type="checkbox" 
+                          checked={selectedOrders.has(order.id)}
+                          onChange={() => toggleSelect(order.id)}
+                          className="rounded border-slate-300 bg-white text-emerald-600"
+                        />
+                      </td>
+                      <td className="px-4 py-4">
+                        <p className="font-mono text-sm font-semibold text-slate-700">
+                          #{order.id}
+                        </p>
+                        <p className="text-xs text-slate-400 mt-0.5">{order.itemCount || 0} items</p>
+                      </td>
+                      <td className="px-4 py-4">
+                        <p className="text-sm font-medium text-slate-700">{order.userName || 'Guest'}</p>
+                        <p className="text-xs text-slate-400">{order.userEmail || order.userPhone || '-'}</p>
+                      </td>
+                      <td className="px-4 py-4 text-sm text-slate-500">
+                        {order.itemCount || 0}
+                      </td>
+                      <td className="px-4 py-4 text-sm font-semibold text-slate-700">
+                        {formatPrice(order.total)}
+                      </td>
+                      <td className="px-4 py-4">
+                        <span className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase ${statusCfg.color}`}>
+                          {statusCfg.label}
+                        </span>
+                      </td>
+                      <td className="px-4 py-4 text-sm text-slate-500">
+                        {new Date(order.createdAt).toLocaleDateString('en-US', { 
+                          month: 'short', 
+                          day: '2-digit',
+                          year: 'numeric'
+                        })}
+                      </td>
+                      <td className="px-4 py-4">
+                        <button 
+                          onClick={() => openDrawer(order)}
+                          className="p-2 rounded-md text-slate-400 hover:text-slate-600 hover:bg-white transition-colors"
+                        >
+                          <Eye className="h-4 w-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Pagination */}
+        {total > PAGE_SIZE && (() => {
+          const totalPages = Math.ceil(total / PAGE_SIZE);
+          const getVisiblePages = () => {
+            const pages: number[] = [];
+            const delta = 2;
+            const start = Math.max(1, page - delta);
+            const end = Math.min(totalPages, page + delta);
+            if (start > 1) { pages.push(1); if (start > 2) pages.push(-1); }
+            for (let i = start; i <= end; i++) pages.push(i);
+            if (end < totalPages) { if (end < totalPages - 1) pages.push(-1); pages.push(totalPages); }
+            return pages;
+          };
+          return (
+            <div className="flex items-center justify-between border-t border-slate-200/50 px-4 py-3">
+              <p className="text-xs text-slate-400">
+                Showing {((page - 1) * PAGE_SIZE) + 1} to {Math.min(page * PAGE_SIZE, total)} of {total} orders
+              </p>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  disabled={page === 1}
+                  className="h-8 w-8 rounded-md border border-slate-200 bg-slate-50 text-slate-400 hover:text-slate-600 disabled:opacity-40"
+                >
+                  ←
+                </button>
+                {getVisiblePages().map((p, idx) =>
+                  p === -1 ? (
+                    <span key={`ellipsis-${idx}`} className="h-8 w-6 flex items-center justify-center text-slate-400 text-xs">…</span>
+                  ) : (
+                    <button
+                      key={p}
+                      onClick={() => setPage(p)}
+                      className={`h-8 w-8 rounded-md text-xs font-medium ${
+                        page === p
+                          ? 'bg-emerald-500 text-white'
+                          : 'border border-slate-200 bg-slate-50 text-slate-500 hover:text-slate-700'
+                      }`}
+                    >
+                      {p}
+                    </button>
+                  )
+                )}
+                <button
+                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                  disabled={page >= totalPages}
+                  className="h-8 w-8 rounded-md border border-slate-200 bg-slate-50 text-slate-400 hover:text-slate-600 disabled:opacity-40"
+                >
+                  →
+                </button>
+              </div>
+            </div>
+          );
+        })()}
+      </div>
+
+      {/* Detail Drawer */}
+      <OrderDrawer 
+        order={selectedOrder}
+        open={drawerOpen}
+        onClose={closeDrawer}
+        loading={detailLoading}
+        updatingId={updatingId}
+        onUpdateStatus={updateStatus}
+      />
+    </div>
+  );
+}
+
+// Order Detail Drawer Component
+function OrderDrawer({ 
+  order, 
+  open, 
+  onClose, 
+  loading,
+  updatingId,
+  onUpdateStatus 
+}: { 
+  order: OrderDetail | null; 
+  open: boolean; 
+  onClose: () => void;
+  loading: boolean;
+  updatingId: number | null;
+  onUpdateStatus: (orderId: number, status: string) => void;
+}) {
+  if (!open) return null;
+
+  const statusCfg = order ? getStatusConfig(order.status) : null;
+  const nextActions = order ? (NEXT_ACTIONS[order.status] || []) : [];
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div 
+        className="fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-sm"
+        onClick={onClose}
+      />
+      
+      {/* Drawer */}
+      <div className="fixed right-0 top-0 z-50 h-screen w-full max-w-md border-l border-slate-200/50 bg-white shadow-xl overflow-y-auto">
+        {/* Header */}
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200/50 bg-white px-4 py-4">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-800">
+              {loading ? 'Loading...' : order ? `#${order.id}` : 'Order Details'}
+            </h2>
+            {order && (
+              <p className="text-xs text-slate-400 mt-0.5">
+                {new Date(order.createdAt).toLocaleDateString('en-US', { 
+                  weekday: 'long',
+                  month: 'long', 
+                  day: 'numeric',
+                  year: 'numeric'
+                })}
+              </p>
+            )}
+          </div>
+          <button 
+            onClick={onClose}
+            className="p-2 rounded-md text-slate-400 hover:text-slate-600 hover:bg-white"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        {loading ? (
+          <div className="flex items-center justify-center py-20">
+            <Loader2 className="h-6 w-6 animate-spin text-emerald-600" />
+          </div>
+        ) : order ? (
+          <div className="p-4 space-y-6">
+            {/* Status */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className={`inline-flex rounded-full px-3 py-1.5 text-xs font-semibold uppercase ${statusCfg?.color}`}>
+                  {statusCfg?.label}
+                </span>
+              </div>
+              {nextActions.length > 0 && (
+                <select
+                  value=""
+                  onChange={(e) => e.target.value && onUpdateStatus(order.id, e.target.value)}
+                  disabled={String(updatingId) === String(order.id)}
+                  className="h-8 rounded-md border border-slate-200 bg-slate-50 px-3 text-xs text-slate-800"
+                >
+                  <option value="">Update Status</option>
+                  {nextActions.map(action => (
+                    <option key={action} value={action}>→ {action}</option>
+                  ))}
+                </select>
+              )}
+            </div>
+
+            {/* Customer Info */}
+            <div className="rounded-lg border border-slate-200/50 bg-white p-4">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-2">
+                <User className="h-4 w-4" /> Customer
+              </h3>
+              <p className="text-sm font-medium text-slate-700">{order.userName || 'Guest'}</p>
+              <p className="text-xs text-slate-400 mt-1">{order.userEmail || 'No email'}</p>
+              {order.userPhone && (
+                <p className="text-xs text-slate-400">{order.userPhone}</p>
+              )}
+            </div>
+
+            {/* Shipping Address */}
+            <div className="rounded-lg border border-slate-200/50 bg-white p-4">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-2">
+                <MapPin className="h-4 w-4" /> Shipping
+              </h3>
+              <p className="text-sm text-slate-600">{order.shippingAddress || 'No address provided'}</p>
+            </div>
+
+            {/* Payment */}
+            <div className="rounded-lg border border-slate-200/50 bg-white p-4">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-2">
+                <CreditCard className="h-4 w-4" /> Payment
+              </h3>
+              <p className="text-sm text-slate-700">{order.paymentMethod || 'COD'}</p>
+              <p className="text-lg font-bold text-amber-600 mt-2">{formatPrice(order.total)}</p>
+            </div>
+
+            {/* Items */}
+            <div className="rounded-lg border border-slate-200/50 bg-white p-4">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-2">
+                <Package className="h-4 w-4" /> Items ({order.itemCount || 0})
+              </h3>
+              <div className="space-y-3">
+                {order.items ? order.items.map((item, i) => (
+                  <div key={i} className="flex items-center gap-3">
+                    <div className="h-10 w-10 rounded bg-white flex items-center justify-center text-slate-400">
+                      <Package className="h-4 w-4" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-slate-700">{item.name}</p>
+                      <p className="text-xs text-slate-400">Qty: {item.quantity} × {formatPrice(item.price)}</p>
+                    </div>
+                    <p className="text-sm font-medium text-slate-700">{formatPrice(item.quantity * item.price)}</p>
+                  </div>
+                )) : (
+                  <p className="text-xs text-slate-400">No item details available</p>
+                )}
+              </div>
+            </div>
+
+            {/* Order Timeline */}
+            <div className="rounded-lg border border-slate-200/50 bg-white p-4">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-2">
+                <Clock className="h-4 w-4" /> Timeline
+              </h3>
+              <div className="space-y-3">
+                {['PENDING', 'CONFIRMED', 'PROCESSING', 'SHIPPING', 'DELIVERED', 'COMPLETED'].map((step, i) => {
+                  const stepIdx = STATUS_CONFIG.findIndex(s => s.key === order.status);
+                  const isComplete = STATUS_CONFIG.findIndex(s => s.key === step) <= stepIdx;
+                  const isCurrent = step === order.status;
+                  
+                  return (
+                    <div key={step} className="flex items-center gap-3">
+                      <div className={`h-2 w-2 rounded-full ${
+                        isComplete ? 'bg-emerald-500' : 'bg-slate-100'
+                      }`} />
+                      <span className={`text-xs ${
+                        isCurrent ? 'font-semibold text-slate-700' : 'text-slate-400'
+                      }`}>
+                        {step}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="p-4 text-center text-slate-400">
+            Không thể tải chi tiết đơn hàng
+          </div>
+        )}
+      </div>
+    </>
+  );
+}

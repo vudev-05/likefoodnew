@@ -1,0 +1,1163 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/client"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// NGƯỜI DÙNG & XÁC THỰC
+// ============================================================
+
+/// Tài khoản người dùng (khách hàng và admin)
+model user {
+  id                      Int                @id @default(autoincrement()) @map("ma_nguoi_dung")
+  email                   String             @unique @map("thu_dien_tu")
+  password                String?            @map("mat_khau")
+  name                    String?            @map("ho_ten")
+  role                    String             @default("USER") @map("vai_tro")
+  emailVerified           DateTime?          @map("ngay_xac_thuc_email")
+  image                   String?            @db.LongText @map("anh_dai_dien")
+  phone                   String?            @map("so_dien_thoai")
+  createdAt               DateTime           @default(now()) @map("ngay_tao")
+  updatedAt               DateTime           @default(now()) @updatedAt @map("ngay_cap_nhat")
+  avatarUrl               String?            @db.VarChar(512) @map("duong_dan_anh")
+  lastCheckIn             DateTime?          @map("ngay_diem_danh_cuoi")
+  points                  Int                @default(0) @map("diem_tich_luy")
+  twoFactorEnabled        Boolean            @default(false) @map("kich_hoat_hai_lop")
+  failedLoginAttempts     Int                @default(0) @map("so_lan_dang_nhap_sai")
+  lockedUntil             DateTime?          @map("khoa_den_ngay")
+  notificationPreferences String?            @db.LongText @map("tuy_chon_thong_bao")
+  googleId                String?            @unique @map("ma_google")
+  balance                 Decimal            @default(0.00) @db.Decimal(12, 2) @map("so_du_tai_khoan")
+
+  addresses               address[]
+  cart                    cart?
+  loginHistory            loginhistory[]
+  notifications           notification[]
+  orders                  order[]
+  pointTransactions       pointtransaction[]
+  productQAs              productqa[]
+  refundRequests          refundrequest[]
+  reviews                 review[]
+  transactions            transaction[]
+  twoFactorTokens         twofactortoken[]
+  userVouchers            uservoucher[]
+  wishlists               wishlist[]
+  liveChatsAsAdmin        livechat[]         @relation("adminLiveChats")
+  liveChatsAsUser         livechat[]         @relation("userLiveChats")
+  referralProfile         referralprofile?
+  referralRelationsAsReferrer  referralrelation[]   @relation("ReferralReferrer")
+  referralRelationsAsReferred  referralrelation?    @relation("ReferralReferred")
+  referralCommissionsGenerated referralcommission[] @relation("CommissionReferred")
+  referralCommissionsEarned    referralcommission[] @relation("CommissionReferrer")
+  referralMilestoneRewards     referralmilestonereward[]
+  referralCashouts             referralcashout[]
+  referralWalletTxs            referralwallettx[]
+  referralAuditLogsAsActor     referralauditlog[]   @relation("AuditActor")
+  referralAuditLogsAsTarget    referralauditlog[]   @relation("AuditTarget")
+
+  @@map("nguoi_dung")
+}
+
+/// Mã xác thực email / đặt lại mật khẩu
+model verificationtoken {
+  id         Int      @id @default(autoincrement()) @map("ma_xac_thuc")
+  identifier String   @map("danh_tinh")
+  token      String   @unique @map("ma_thong_bao")
+  expires    DateTime @map("ngay_het_han")
+
+  @@unique([identifier, token])
+  @@map("ma_xac_thuc_email")
+}
+
+/// Lịch sử đăng nhập — giám sát bảo mật
+model loginhistory {
+  id           Int      @id @default(autoincrement()) @map("ma_lich_su_dang_nhap")
+  userId       Int      @map("ma_nguoi_dung")
+  ipAddress    String?  @db.VarChar(64) @map("dia_chi_ip")
+  userAgent    String?  @db.Text @map("thiet_bi")
+  country      String?  @db.VarChar(64) @map("quoc_gia")
+  city         String?  @db.VarChar(64) @map("thanh_pho")
+  isSuspicious Boolean  @default(false) @map("dang_ngo")
+  createdAt    DateTime @default(now()) @map("ngay_tao")
+  user         user     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([createdAt])
+  @@map("lich_su_dang_nhap")
+}
+
+/// Token xác thực hai bước (2FA)
+model twofactortoken {
+  id        Int      @id @default(autoincrement()) @map("ma_xac_thuc_hai_lop")
+  userId    Int      @map("ma_nguoi_dung")
+  token     String   @db.VarChar(10) @map("ma_token")
+  expires   DateTime @map("ngay_het_han")
+  createdAt DateTime @default(now()) @map("ngay_tao")
+  user      user     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("xac_thuc_hai_lop")
+}
+
+/// Địa chỉ giao hàng của người dùng
+model address {
+  id        Int      @id @default(autoincrement()) @map("ma_dia_chi")
+  userId    Int      @map("ma_nguoi_dung")
+  fullName  String   @map("ho_ten_nguoi_nhan")
+  phone     String   @map("so_dien_thoai_nguoi_nhan")
+  address   String   @map("dia_chi_chi_tiet")
+  city      String   @map("thanh_pho")
+  state     String?  @map("tinh_thanh")
+  zipCode   String   @map("ma_buu_dien")
+  country   String   @default("Việt Nam") @map("quoc_gia")
+  isDefault Boolean  @default(false) @map("la_mac_dinh")
+  createdAt DateTime @default(now()) @map("ngay_tao")
+  updatedAt DateTime @default(now()) @updatedAt @map("ngay_cap_nhat")
+  user      user     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("dia_chi_giao_hang")
+}
+
+/// Giao dịch tài khoản (nạp/trừ tiền, thanh toán)
+model transaction {
+  id        Int      @id @default(autoincrement()) @map("ma_giao_dich")
+  userId    Int      @map("ma_nguoi_dung")
+  amount    Decimal  @db.Decimal(12, 2) @map("so_tien")
+  type      String   @map("loai_giao_dich")
+  status    String   @default("PENDING") @map("trang_thai")
+  method    String?  @map("phuong_thuc")
+  reference String?  @unique @map("ma_tham_chieu")
+  note      String?  @db.Text @map("ghi_chu")
+  createdAt DateTime @default(now()) @map("ngay_tao")
+  updatedAt DateTime @updatedAt @map("ngay_cap_nhat")
+  user      user     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+  @@index([reference])
+  @@map("giao_dich_tai_khoan")
+}
+
+// ============================================================
+// SẢN PHẨM & DANH MỤC
+// ============================================================
+
+/// Thương hiệu sản phẩm
+model brand {
+  id        Int       @id @default(autoincrement()) @map("ma_thuong_hieu")
+  name      String    @map("ten_thuong_hieu")
+  nameEn    String?   @map("ten_thuong_hieu_en")
+  slug      String    @unique @map("duong_dan_tinh")
+  logo      String?   @map("anh_logo")
+  isActive  Boolean   @default(true) @map("dang_hoat_dong")
+  createdAt DateTime  @default(now()) @map("ngay_tao")
+  updatedAt DateTime  @default(now()) @updatedAt @map("ngay_cap_nhat")
+  products  product[]
+
+  @@map("thuong_hieu")
+}
+
+/// Sản phẩm
+model product {
+  id              Int                    @id @default(autoincrement()) @map("ma_san_pham")
+  name            String                 @map("ten_san_pham")
+  nameEn          String?                @map("ten_san_pham_en")
+  slug            String?                @unique @map("duong_dan_tinh")
+  description     String                 @db.Text @map("mo_ta")
+  descriptionEn   String?                @db.Text @map("mo_ta_en")
+  price           Float                  @map("gia_ban")
+  salePrice       Float?                 @map("gia_khuyen_mai")
+  saleStartAt     DateTime?              @map("ngay_bat_dau_khuyen_mai")
+  saleEndAt       DateTime?              @map("ngay_ket_thuc_khuyen_mai")
+  isOnSale        Boolean                @default(false) @map("dang_khuyen_mai")
+  badgeText       String?                @map("nhan_hieu_noi_bat")
+  badgeTextEn     String?                @map("nhan_hieu_noi_bat_en")
+  image           String?                @map("anh_dai_dien")
+  category        String                 @map("phan_loai")
+  categoryId      Int?                   @map("ma_danh_muc")
+  inventory       Int                    @default(0) @map("so_luong_ton_kho")
+  featured        Boolean                @default(false) @map("noi_bat")
+  isVisible       Boolean                @default(true) @map("hien_thi")
+  brandId         Int?                   @map("ma_thuong_hieu")
+  originalPrice   Float?                 @map("gia_goc")
+  tags            String?                @map("tu_khoa")
+  ratingAvg       Float                  @default(0) @map("diem_danh_gia_trung_binh")
+  ratingCount     Int                    @default(0) @map("so_luot_danh_gia")
+  soldCount       Int                    @default(0) @map("so_luong_da_ban")
+  createdAt       DateTime               @default(now()) @map("ngay_tao")
+  updatedAt       DateTime               @default(now()) @updatedAt @map("ngay_cap_nhat")
+  code            String?                @unique @map("ma_so_san_pham")
+  weight          String?                @map("khoi_luong")
+  weightEn        String?                @map("khoi_luong_en")
+  deletedAt       DateTime?              @map("ngay_xoa")
+  isDeleted       Boolean                @default(false) @map("da_xoa")
+  searchKeywords  String?                @db.Text @map("tu_khoa_tim_kiem")
+
+  cartItems       cartitem[]
+  flashSaleProducts flashsaleproduct[]
+  orderItems      orderitem[]
+  brand           brand?                 @relation(fields: [brandId], references: [id])
+  categoryRel     category?              @relation(fields: [categoryId], references: [id])
+  productImages   productimage[]
+  productQAs      productqa[]
+  specifications  productspecification[]
+  productTags     producttag[]
+  productVariants productvariant[]
+  reviews         review[]
+  wishlists       wishlist[]
+
+  @@index([brandId])
+  @@index([category])
+  @@index([categoryId])
+  @@index([isOnSale])
+  @@index([featured])
+  @@index([isVisible])
+  @@index([soldCount])
+  @@index([ratingAvg])
+  @@fulltext([name, description])
+  @@map("san_pham")
+}
+
+/// Danh mục sản phẩm (có thể lồng nhau cha-con)
+model category {
+  id            Int        @id @default(autoincrement()) @map("ma_danh_muc")
+  name          String     @map("ten_danh_muc")
+  nameEn        String?    @map("ten_danh_muc_en")
+  slug          String     @unique @map("duong_dan_tinh")
+  description   String?    @db.Text @map("mo_ta")
+  descriptionEn String?    @db.Text @map("mo_ta_en")
+  imageUrl      String?    @db.VarChar(512) @map("duong_dan_anh")
+  parentId      Int?       @map("ma_danh_muc_cha")
+  position      Int        @default(0) @map("vi_tri_hien_thi")
+  isVisible     Boolean    @default(true) @map("hien_thi")
+  isActive      Boolean    @default(true) @map("dang_hoat_dong")
+  createdAt     DateTime   @default(now()) @map("ngay_tao")
+  updatedAt     DateTime   @updatedAt @map("ngay_cap_nhat")
+  parent        category?  @relation("CategoryParent", fields: [parentId], references: [id])
+  children      category[] @relation("CategoryParent")
+  products      product[]
+
+  @@index([parentId])
+  @@index([position])
+  @@index([isVisible])
+  @@index([isActive])
+  @@map("danh_muc_san_pham")
+}
+
+/// Nhãn/Tag để phân loại sản phẩm
+model tag {
+  id        Int          @id @default(autoincrement()) @map("ma_nhan")
+  name      String       @map("ten_nhan")
+  nameEn    String?      @map("ten_nhan_en")
+  slug      String       @unique @map("duong_dan_tinh")
+  isActive  Boolean      @default(true) @map("dang_hoat_dong")
+  createdAt DateTime     @default(now()) @map("ngay_tao")
+  updatedAt DateTime     @updatedAt @map("ngay_cap_nhat")
+  products  producttag[]
+
+  @@index([isActive])
+  @@map("nhan_san_pham")
+}
+
+/// Liên kết giữa sản phẩm và nhãn (nhiều-nhiều)
+model producttag {
+  productId Int      @map("ma_san_pham")
+  tagId     Int      @map("ma_nhan")
+  createdAt DateTime @default(now()) @map("ngay_tao")
+  product   product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  tag       tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([productId, tagId])
+  @@index([tagId])
+  @@map("chi_tiet_nhan_san_pham")
+}
+
+/// Ảnh sản phẩm (nhiều ảnh cho một sản phẩm)
+model productimage {
+  id        Int      @id @default(autoincrement()) @map("ma_anh")
+  productId Int      @map("ma_san_pham")
+  imageUrl  String   @map("duong_dan_anh")
+  altText   String?  @map("van_ban_thay_the")
+  order     Int      @default(0) @map("thu_tu_hien_thi")
+  isPrimary Boolean  @default(false) @map("la_anh_chinh")
+  createdAt DateTime @default(now()) @map("ngay_tao")
+  updatedAt DateTime @default(now()) @updatedAt @map("ngay_cap_nhat")
+  product   product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@index([isPrimary])
+  @@map("anh_san_pham")
+}
+
+/// Biến thể sản phẩm (theo khối lượng, hương vị…)
+model productvariant {
+  id              Int         @id @default(autoincrement()) @map("ma_bien_the")
+  productId       Int         @map("ma_san_pham")
+  weight          String?     @map("khoi_luong")
+  weightEn        String?     @map("khoi_luong_en")
+  flavor          String?     @map("huong_vi")
+  flavorEn        String?     @map("huong_vi_en")
+  priceAdjustment Float       @default(0) @map("gia_dieu_chinh")
+  stock           Int         @default(0) @map("so_luong_ton_kho")
+  sku             String?     @unique @map("ma_sku")
+  isActive        Boolean     @default(true) @map("dang_hoat_dong")
+  createdAt       DateTime    @default(now()) @map("ngay_tao")
+  updatedAt       DateTime    @default(now()) @updatedAt @map("ngay_cap_nhat")
+  cartItems       cartitem[]
+  orderItems      orderitem[]
+  product         product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@index([isActive])
+  @@map("bien_the_san_pham")
+}
+
+/// Thông số kỹ thuật sản phẩm
+model productspecification {
+  id        Int      @id @default(autoincrement()) @map("ma_thong_so")
+  productId Int      @map("ma_san_pham")
+  key       String   @map("ten_thong_so")
+  keyEn     String?  @map("ten_thong_so_en")
+  value     String   @db.Text @map("gia_tri")
+  valueEn   String?  @db.Text @map("gia_tri_en")
+  order     Int      @default(0) @map("thu_tu_hien_thi")
+  createdAt DateTime @default(now()) @map("ngay_tao")
+  updatedAt DateTime @updatedAt @map("ngay_cap_nhat")
+  product   product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@index([order])
+  @@map("thong_so_ky_thuat")
+}
+
+/// Hỏi đáp sản phẩm (Q&A từ khách hàng)
+model productqa {
+  id        Int      @id @default(autoincrement()) @map("ma_hoi_dap")
+  productId Int      @map("ma_san_pham")
+  userId    Int      @map("ma_nguoi_dung")
+  question  String   @db.Text @map("cau_hoi")
+  answer    String?  @db.Text @map("cau_tra_loi")
+  isPublic  Boolean  @default(true) @map("cong_khai")
+  createdAt DateTime @default(now()) @map("ngay_tao")
+  updatedAt DateTime @default(now()) @updatedAt @map("ngay_cap_nhat")
+  product   product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  user      user     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("hoi_dap_san_pham")
+}
+
+// ============================================================
+// GIỎ HÀNG
+// ============================================================
+
+/// Giỏ hàng (hỗ trợ cả khách chưa đăng nhập qua guestToken)
+model cart {
+  id         Int        @id @default(autoincrement()) @map("ma_gio_hang")
+  userId     Int?       @unique @map("ma_nguoi_dung")
+  guestToken String?    @unique @map("ma_khach_vang_lai")
+  createdAt  DateTime   @default(now()) @map("ngay_tao")
+  updatedAt  DateTime   @default(now()) @updatedAt @map("ngay_cap_nhat")
+  user       user?      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items      cartitem[]
+
+  @@map("gio_hang")
+}
+
+/// Sản phẩm trong giỏ hàng
+model cartitem {
+  id        Int             @id @default(autoincrement()) @map("ma_chi_tiet_gio_hang")
+  cartId    Int             @map("ma_gio_hang")
+  productId Int             @map("ma_san_pham")
+  variantId Int?            @map("ma_bien_the")
+  quantity  Int             @default(1) @map("so_luong")
+  createdAt DateTime        @default(now()) @map("ngay_tao")
+  updatedAt DateTime        @default(now()) @updatedAt @map("ngay_cap_nhat")
+  cart      cart            @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  product   product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variant   productvariant? @relation(fields: [variantId], references: [id])
+
+  @@unique([cartId, productId, variantId])
+  @@index([cartId])
+  @@index([productId])
+  @@index([variantId])
+  @@map("chi_tiet_gio_hang")
+}
+
+// ============================================================
+// ĐƠN HÀNG & THANH TOÁN
+// ============================================================
+
+/// Đơn hàng của khách
+model order {
+  id              Int                  @id @default(autoincrement()) @map("ma_don_hang")
+  userId          Int                  @map("ma_nguoi_dung")
+  status          String               @default("PENDING") @map("trang_thai")
+  subtotal        Float                @default(0) @map("tam_tinh")
+  shippingFee     Float                @default(0) @map("phi_van_chuyen")
+  discount        Float                @default(0) @map("giam_gia")
+  total           Float                @map("tong_tien")
+  couponId        Int?                 @map("ma_phieu_giam_gia")
+  couponCode      String?              @map("ma_code_giam_gia")
+  shippingAddress String?              @map("dia_chi_giao_hang")
+  shippingCity    String?              @map("thanh_pho_giao_hang")
+  shippingZipCode String?              @map("ma_buu_dien_giao_hang")
+  shippingPhone   String?              @map("so_dien_thoai_giao_hang")
+  shippingMethod  String?              @default("standard") @map("phuong_thuc_giao_hang")
+  carrier         String?              @map("don_vi_van_chuyen")
+  trackingCode    String?              @map("ma_van_don")
+  shippedAt       DateTime?            @map("ngay_gui_hang")
+  deliveredAt     DateTime?            @map("ngay_nhan_hang")
+  paymentMethod   String?              @map("phuong_thuc_thanh_toan")
+  paymentStatus   String               @default("UNPAID") @map("trang_thai_thanh_toan")
+  paymentIntentId String?              @map("ma_giao_dich_thanh_toan")
+  notes           String?              @db.Text @map("ghi_chu")
+  createdAt       DateTime             @default(now()) @map("ngay_tao")
+  updatedAt       DateTime             @default(now()) @updatedAt @map("ngay_cap_nhat")
+  pointsDiscount  Float?               @map("giam_gia_bang_diem")
+  pointsUsed      Int?                 @map("so_diem_da_dung")
+  user            user                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  events          orderevent[]
+  orderItems      orderitem[]
+  refundRequests  refundrequest[]
+  referralCommissions referralcommission[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+  @@index([paymentIntentId])
+  @@index([userId, status])
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@index([paymentStatus])
+  @@map("don_hang")
+}
+
+/// Sản phẩm trong đơn hàng (snapshot giá tại thời điểm mua)
+model orderitem {
+  id           Int             @id @default(autoincrement()) @map("ma_chi_tiet_don_hang")
+  orderId      Int             @map("ma_don_hang")
+  productId    Int             @map("ma_san_pham")
+  variantId    Int?            @map("ma_bien_the")
+  quantity     Int             @map("so_luong")
+  price        Float           @map("don_gia")
+  nameSnapshot String?         @map("ten_san_pham_luc_mua")
+  skuSnapshot  String?         @map("ma_sku_luc_mua")
+  createdAt    DateTime        @default(now()) @map("ngay_tao")
+  order        order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product      product         @relation(fields: [productId], references: [id])
+  variant      productvariant? @relation(fields: [variantId], references: [id])
+  reviews      review?
+
+  @@index([orderId])
+  @@index([productId])
+  @@index([variantId])
+  @@index([createdAt])
+  @@map("chi_tiet_don_hang")
+}
+
+/// Lịch sử thay đổi trạng thái đơn hàng
+model orderevent {
+  id        Int      @id @default(autoincrement()) @map("ma_su_kien")
+  orderId   Int      @map("ma_don_hang")
+  status    String   @map("trang_thai")
+  note      String?  @db.Text @map("ghi_chu")
+  createdAt DateTime @default(now()) @map("ngay_tao")
+  order     order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId, createdAt])
+  @@map("lich_su_trang_thai_don_hang")
+}
+
+/// Yêu cầu hoàn tiền từ khách hàng
+model refundrequest {
+  id           Int       @id @default(autoincrement()) @map("ma_yeu_cau_hoan_tien")
+  orderId      Int       @map("ma_don_hang")
+  userId       Int       @map("ma_nguoi_dung")
+  orderItemId  Int?      @map("ma_chi_tiet_don_hang")
+  reason       String    @db.Text @map("ly_do")
+  amount       Float     @map("so_tien")
+  status       String    @default("PENDING") @map("trang_thai")
+  adminNote    String?   @db.Text @map("ghi_chu_admin")
+  refundMethod String?   @map("phuong_thuc_hoan_tien")
+  bankAccount  String?   @map("tai_khoan_ngan_hang")
+  bankName     String?   @map("ten_ngan_hang")
+  processedAt  DateTime? @map("ngay_xu_ly")
+  createdAt    DateTime  @default(now()) @map("ngay_tao")
+  updatedAt    DateTime  @updatedAt @map("ngay_cap_nhat")
+  order        order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  user         user      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@index([userId])
+  @@index([status])
+  @@map("yeu_cau_hoan_tien")
+}
+
+// ============================================================
+// ĐÁNH GIÁ SẢN PHẨM
+// ============================================================
+
+/// Đánh giá sản phẩm (chỉ cho phép sau khi mua hàng)
+model review {
+  id          Int           @id @default(autoincrement()) @map("ma_danh_gia")
+  productId   Int           @map("ma_san_pham")
+  userId      Int           @map("ma_nguoi_dung")
+  orderItemId Int?          @unique @map("ma_chi_tiet_don_hang")
+  rating      Int           @map("so_sao")
+  comment     String?       @db.Text @map("noi_dung_danh_gia")
+  status      String        @default("PENDING") @map("trang_thai")
+  adminReply  String?       @db.Text @map("phan_hoi_tu_admin")
+  repliedAt   DateTime?     @map("ngay_phan_hoi")
+  createdAt   DateTime      @default(now()) @map("ngay_tao")
+  updatedAt   DateTime      @default(now()) @updatedAt @map("ngay_cap_nhat")
+  orderItem   orderitem?    @relation(fields: [orderItemId], references: [id])
+  product     product       @relation(fields: [productId], references: [id], onDelete: Cascade)
+  user        user          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  media       reviewmedia[]
+
+  @@index([productId])
+  @@index([userId])
+  @@index([status, rating])
+  @@index([productId, status])
+  @@map("danh_gia_san_pham")
+}
+
+/// Ảnh/video đính kèm trong đánh giá
+model reviewmedia {
+  id        Int      @id @default(autoincrement()) @map("ma_phuong_tien")
+  reviewId  Int      @map("ma_danh_gia")
+  type      String   @map("loai_phuong_tien")
+  url       String   @map("duong_dan")
+  order     Int      @default(0) @map("thu_tu_hien_thi")
+  createdAt DateTime @default(now()) @map("ngay_tao")
+  review    review   @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+
+  @@index([reviewId])
+  @@map("phuong_tien_danh_gia")
+}
+
+// ============================================================
+// COUPON & VOUCHER
+// ============================================================
+
+/// Mã giảm giá toàn hệ thống
+model coupon {
+  id                       Int                       @id @default(autoincrement()) @map("ma_phieu_giam_gia")
+  code                     String                    @unique @map("ma_code")
+  discountType             String                    @map("loai_giam_gia")
+  discountValue            Float                     @map("gia_tri_giam")
+  minOrderValue            Float?                    @default(0) @map("gia_tri_don_hang_toi_thieu")
+  maxDiscount              Float?                    @map("muc_giam_toi_da")
+  startDate                DateTime                  @default(now()) @map("ngay_bat_dau")
+  endDate                  DateTime                  @map("ngay_ket_thuc")
+  isActive                 Boolean                   @default(true) @map("dang_hoat_dong")
+  usageLimit               Int?                      @map("gioi_han_su_dung")
+  usedCount                Int                       @default(0) @map("so_luot_da_su_dung")
+  category                 String                    @default("all") @map("danh_muc_ap_dung")
+  createdAt                DateTime                  @default(now()) @map("ngay_tao")
+  updatedAt                DateTime                  @default(now()) @updatedAt @map("ngay_cap_nhat")
+  referralMilestoneRewards referralmilestonereward[]
+  userVouchers             uservoucher[]
+
+  @@map("phieu_giam_gia")
+}
+
+/// Voucher được gán cho người dùng cụ thể
+model uservoucher {
+  id        Int       @id @default(autoincrement()) @map("ma_voucher_nguoi_dung")
+  userId    Int       @map("ma_nguoi_dung")
+  couponId  Int       @map("ma_phieu_giam_gia")
+  status    String    @default("CLAIMED") @map("trang_thai")
+  claimedAt DateTime  @default(now()) @map("ngay_nhan")
+  usedAt    DateTime? @map("ngay_su_dung")
+  coupon    coupon    @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  user      user      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, couponId])
+  @@index([userId])
+  @@index([couponId])
+  @@map("voucher_nguoi_dung")
+}
+
+// ============================================================
+// THÔNG BÁO
+// ============================================================
+
+/// Thông báo trong ứng dụng
+model notification {
+  id        Int      @id @default(autoincrement()) @map("ma_thong_bao")
+  userId    Int      @map("ma_nguoi_dung")
+  type      String   @map("loai_thong_bao")
+  title     String   @map("tieu_de")
+  message   String   @db.Text @map("noi_dung")
+  link      String?  @map("duong_dan")
+  isRead    Boolean  @default(false) @map("da_doc")
+  createdAt DateTime @default(now()) @map("ngay_tao")
+  user      user     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@index([createdAt])
+  @@map("thong_bao")
+}
+
+// ============================================================
+// NỘI DUNG & MARKETING
+// ============================================================
+
+/// Banner quảng cáo (trang chủ, danh mục…)
+model banner {
+  id         Int       @id @default(autoincrement()) @map("ma_banner")
+  imageUrl   String    @map("duong_dan_anh")
+  title      String    @map("tieu_de")
+  titleEn    String?   @map("tieu_de_en")
+  subtitle   String?   @map("phu_de")
+  subtitleEn String?   @map("phu_de_en")
+  ctaText    String?   @map("van_ban_nut")
+  ctaTextEn  String?   @map("van_ban_nut_en")
+  ctaLink    String?   @map("duong_dan_nut")
+  startAt    DateTime? @map("ngay_bat_dau")
+  endAt      DateTime? @map("ngay_ket_thuc")
+  priority   Int       @default(0) @map("thu_tu_uu_tien")
+  isActive   Boolean   @default(true) @map("dang_hoat_dong")
+  placement  String    @default("home") @map("vi_tri_hien_thi")
+  createdAt  DateTime  @default(now()) @map("ngay_tao")
+  updatedAt  DateTime  @default(now()) @updatedAt @map("ngay_cap_nhat")
+
+  @@index([placement, isActive, priority])
+  @@map("banner_quang_cao")
+}
+
+/// Bài viết / Tin tức blog
+model post {
+  id          Int         @id @default(autoincrement()) @map("ma_bai_viet")
+  title       String      @map("tieu_de")
+  titleEn     String?     @map("tieu_de_en")
+  slug        String      @unique @map("duong_dan_tinh")
+  summary     String?     @db.Text @map("tom_tat")
+  summaryEn   String?     @db.Text @map("tom_tat_en")
+  content     String      @db.LongText @map("noi_dung")
+  contentEn   String?     @db.LongText @map("noi_dung_en")
+  image       String?     @map("anh_dai_dien")
+  authorName  String?     @default("LIKEFOOD") @map("ten_tac_gia")
+  category    String?     @default("Tin tức") @map("danh_muc")
+  categoryEn  String?     @default("News") @map("danh_muc_en")
+  isPublished Boolean     @default(true) @map("da_xuat_ban")
+  publishedAt DateTime    @default(now()) @map("ngay_xuat_ban")
+  createdAt   DateTime    @default(now()) @map("ngay_tao")
+  updatedAt   DateTime    @updatedAt @map("ngay_cap_nhat")
+  images      postimage[]
+
+  @@index([isPublished])
+  @@index([publishedAt])
+  @@map("bai_viet")
+}
+
+/// Ảnh trong bài viết
+model postimage {
+  id        Int      @id @default(autoincrement()) @map("ma_anh")
+  postId    Int      @map("ma_bai_viet")
+  imageUrl  String   @map("duong_dan_anh")
+  altText   String?  @map("van_ban_thay_the")
+  order     Int      @default(0) @map("thu_tu_hien_thi")
+  createdAt DateTime @default(now()) @map("ngay_tao")
+  post      post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@index([postId])
+  @@map("anh_bai_viet")
+}
+
+/// Tin nhắn liên hệ từ khách hàng
+model contactmessage {
+  id        Int      @id @default(autoincrement()) @map("ma_lien_he")
+  name      String   @map("ho_ten")
+  email     String   @map("thu_dien_tu")
+  phone     String?  @map("so_dien_thoai")
+  subject   String   @map("tieu_de")
+  message   String   @db.Text @map("noi_dung")
+  status    String   @default("PENDING") @map("trang_thai")
+  createdAt DateTime @default(now()) @map("ngay_tao")
+  updatedAt DateTime @default(now()) @updatedAt @map("ngay_cap_nhat")
+
+  @@index([email])
+  @@index([status])
+  @@index([createdAt])
+  @@map("tin_nhan_lien_he")
+}
+
+/// Cài đặt hệ thống dạng key-value
+model systemsetting {
+  id        Int      @id @default(autoincrement()) @map("ma_cai_dat")
+  key       String   @unique @map("khoa")
+  value     String   @db.Text @map("gia_tri")
+  createdAt DateTime @default(now()) @map("ngay_tao")
+  updatedAt DateTime @default(now()) @updatedAt @map("ngay_cap_nhat")
+
+  @@index([key])
+  @@map("cai_dat_he_thong")
+}
+
+/// Danh sách yêu thích của người dùng
+model wishlist {
+  id        Int      @id @default(autoincrement()) @map("ma_yeu_thich")
+  userId    Int      @map("ma_nguoi_dung")
+  productId Int      @map("ma_san_pham")
+  createdAt DateTime @default(now()) @map("ngay_tao")
+  product   product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  user      user     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, productId])
+  @@index([userId])
+  @@index([productId])
+  @@map("danh_sach_yeu_thich")
+}
+
+/// Đăng ký nhận bản tin email
+model newslettersubscriber {
+  id           Int      @id @default(autoincrement()) @map("ma_dang_ky")
+  email        String   @unique @map("thu_dien_tu")
+  subscribedAt DateTime @default(now()) @map("ngay_dang_ky")
+
+  @@index([subscribedAt])
+  @@map("dang_ky_nhan_ban_tin")
+}
+
+// ============================================================
+// FLASH SALE
+// ============================================================
+
+/// Chiến dịch flash sale theo thời gian
+model flashsalecampaign {
+  id        Int                @id @default(autoincrement()) @map("ma_chien_dich")
+  name      String             @map("ten_chien_dich")
+  startAt   DateTime           @map("ngay_bat_dau")
+  endAt     DateTime           @map("ngay_ket_thuc")
+  isActive  Boolean            @default(true) @map("dang_hoat_dong")
+  createdAt DateTime           @default(now()) @map("ngay_tao")
+  updatedAt DateTime           @updatedAt @map("ngay_cap_nhat")
+  products  flashsaleproduct[]
+
+  @@index([startAt, endAt])
+  @@index([isActive])
+  @@map("chien_dich_flash_sale")
+}
+
+/// Sản phẩm tham gia flash sale
+model flashsaleproduct {
+  id             Int               @id @default(autoincrement()) @map("ma_san_pham_flash_sale")
+  campaignId     Int               @map("ma_chien_dich")
+  productId      Int               @map("ma_san_pham")
+  flashSalePrice Float             @map("gia_khuyen_mai")
+  stockLimit     Int?              @map("gioi_han_so_luong")
+  soldCount      Int               @default(0) @map("so_luong_da_ban")
+  createdAt      DateTime          @default(now()) @map("ngay_tao")
+  updatedAt      DateTime          @updatedAt @map("ngay_cap_nhat")
+  campaign       flashsalecampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  product        product           @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, productId])
+  @@index([campaignId])
+  @@index([productId])
+  @@map("san_pham_flash_sale")
+}
+
+// ============================================================
+// ĐIỂM THƯỞNG
+// ============================================================
+
+/// Lịch sử giao dịch điểm tích lũy
+model pointtransaction {
+  id          Int      @id @default(autoincrement()) @map("ma_giao_dich_diem")
+  userId      Int      @map("ma_nguoi_dung")
+  amount      Int      @map("so_diem")
+  type        String   @map("loai_giao_dich")
+  description String?  @map("mo_ta")
+  orderId     Int?     @map("ma_don_hang")
+  createdAt   DateTime @default(now()) @map("ngay_tao")
+  user        user     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([createdAt])
+  @@map("giao_dich_diem_thuong")
+}
+
+// ============================================================
+// CHAT TRỰC TIẾP (HỖ TRỢ KHÁCH HÀNG)
+// ============================================================
+
+/// Phiên chat hỗ trợ khách hàng
+model livechat {
+  id        Int               @id @default(autoincrement()) @map("ma_phien_chat")
+  userId    Int               @map("ma_nguoi_dung")
+  adminId   Int?              @map("ma_quan_tri_vien")
+  status    String            @default("OPEN") @db.VarChar(20) @map("trang_thai")
+  subject   String?           @map("chu_de")
+  createdAt DateTime          @default(now()) @map("ngay_tao")
+  updatedAt DateTime          @updatedAt @map("ngay_cap_nhat")
+  closedAt  DateTime?         @map("ngay_dong")
+  admin     user?             @relation("adminLiveChats", fields: [adminId], references: [id])
+  user      user              @relation("userLiveChats", fields: [userId], references: [id], onDelete: Cascade)
+  messages  livechatmessage[]
+
+  @@index([userId])
+  @@index([adminId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("phien_chat_truc_tiep")
+}
+
+/// Tin nhắn trong phiên chat hỗ trợ
+model livechatmessage {
+  id         Int      @id @default(autoincrement()) @map("ma_tin_nhan")
+  chatId     Int      @map("ma_phien_chat")
+  senderType String   @db.VarChar(10) @map("loai_nguoi_gui")
+  senderId   Int?     @map("ma_nguoi_gui")
+  content    String   @db.Text @map("noi_dung")
+  isRead     Boolean  @default(false) @map("da_doc")
+  createdAt  DateTime @default(now()) @map("ngay_tao")
+  chat       livechat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  @@index([chatId])
+  @@index([chatId, createdAt])
+  @@index([isRead])
+  @@map("tin_nhan_chat")
+}
+
+// ============================================================
+// AI CHATBOT
+// ============================================================
+
+/// Cơ sở kiến thức cho AI chatbot (FAQ tự động)
+model AiKnowledge {
+  id        Int      @id @default(autoincrement()) @map("ma_kien_thuc")
+  category  String   @map("danh_muc")
+  question  String?  @db.Text @map("cau_hoi")
+  answer    String   @db.LongText @map("cau_tra_loi")
+  keywords  String?  @map("tu_khoa")
+  language  String   @default("vi") @map("ngon_ngu")
+  priority  Int      @default(0) @map("thu_tu_uu_tien")
+  isActive  Boolean  @default(true) @map("dang_hoat_dong")
+  createdAt DateTime @default(now()) @map("ngay_tao")
+  updatedAt DateTime @updatedAt @map("ngay_cap_nhat")
+
+  @@index([category])
+  @@index([isActive])
+  @@index([language])
+  @@map("kien_thuc_ai")
+}
+
+/// Lịch sử hội thoại với AI chatbot
+model ConversationHistory {
+  id         Int      @id @default(autoincrement()) @map("ma_lich_su")
+  userId     Int?     @map("ma_nguoi_dung")
+  sessionId  String   @map("ma_phien_lam_viec")
+  role       String   @map("vai_tro")
+  message    String   @db.LongText @map("noi_dung_tin_nhan")
+  intent     String?  @map("muc_dich")
+  confidence Float?   @map("do_tin_cay")
+  feedback   String?  @map("phan_hoi")
+  createdAt  DateTime @default(now()) @map("ngay_tao")
+
+  @@index([createdAt])
+  @@index([sessionId])
+  @@index([userId])
+  @@map("lich_su_hoi_thoai_ai")
+}
+
+/// Nhật ký sử dụng AI (token, model, độ trễ)
+model AiUsageLog {
+  id               Int      @id @default(autoincrement()) @map("ma_nhat_ky")
+  task             String   @db.VarChar(50) @map("ten_nhiem_vu")
+  model            String   @db.VarChar(30) @map("mo_hinh_ai")
+  promptTokens     Int      @default(0) @map("so_token_dau_vao")
+  completionTokens Int      @default(0) @map("so_token_dau_ra")
+  totalTokens      Int      @default(0) @map("tong_so_token")
+  latencyMs        Int      @default(0) @map("do_tre_ms")
+  success          Boolean  @default(true) @map("thanh_cong")
+  error            String?  @db.Text @map("loi_phat_sinh")
+  userId           Int?     @map("ma_nguoi_dung")
+  sessionId        String?  @db.VarChar(100) @map("ma_phien_lam_viec")
+  createdAt        DateTime @default(now()) @map("ngay_tao")
+
+  @@index([task])
+  @@index([createdAt])
+  @@index([userId])
+  @@map("nhat_ky_su_dung_ai")
+}
+
+// ============================================================
+// THEO DÕI HÀNH VI NGƯỜI DÙNG
+// ============================================================
+
+/// Sự kiện hành vi người dùng (click, xem, tìm kiếm…)
+model BehaviorEvent {
+  id         Int      @id @default(autoincrement()) @map("ma_su_kien")
+  userId     Int?     @map("ma_nguoi_dung")
+  sessionId  String   @map("ma_phien_lam_viec")
+  eventType  String   @map("loai_su_kien")
+  eventData  String?  @db.LongText @map("du_lieu_su_kien")
+  url        String?  @db.VarChar(500) @map("duong_dan_url")
+  referrer   String?  @db.VarChar(500) @map("nguon_truy_cap")
+  deviceType String   @default("desktop") @map("loai_thiet_bi")
+  createdAt  DateTime @default(now()) @map("ngay_tao")
+
+  @@index([createdAt])
+  @@index([eventType])
+  @@index([sessionId])
+  @@index([userId])
+  @@index([userId, eventType, createdAt])
+  @@index([eventType, createdAt])
+  @@map("su_kien_hanh_vi")
+}
+
+// ============================================================
+// GIỚI THIỆU BẠN BÈ (REFERRAL)
+// ============================================================
+
+/// Hồ sơ giới thiệu — số dư, mã, cấp bậc của người dùng
+model referralprofile {
+  id                       Int      @id @default(autoincrement()) @map("ma_ho_so")
+  userId                   Int      @unique @map("ma_nguoi_dung")
+  customCode               String?  @unique @db.VarChar(10) @map("ma_gioi_thieu_tuy_chinh")
+  systemCode               String   @unique @db.VarChar(12) @map("ma_gioi_thieu_he_thong")
+  verifiedPhoneCodeEnabled Boolean  @default(false) @map("xac_thuc_so_dien_thoai")
+  customCodeChanges        Int      @default(0) @map("so_lan_doi_ma")
+  totalInvites             Int      @default(0) @map("tong_so_loi_moi")
+  qualifiedInvites         Int      @default(0) @map("loi_moi_hop_le")
+  pendingBalance           Decimal  @default(0.00) @db.Decimal(12, 2) @map("so_du_cho_xu_ly")
+  availableBalance         Decimal  @default(0.00) @db.Decimal(12, 2) @map("so_du_kha_dung")
+  withdrawnBalance         Decimal  @default(0.00) @db.Decimal(12, 2) @map("so_du_da_rut")
+  convertedBalance         Decimal  @default(0.00) @db.Decimal(12, 2) @map("so_du_da_chuyen_doi")
+  tier                     String   @default("MEMBER") @db.VarChar(20) @map("cap_bac")
+  fraudScore               Int      @default(0) @map("diem_gian_lan")
+  isLocked                 Boolean  @default(false) @map("bi_khoa")
+  lockReason               String?  @db.Text @map("ly_do_khoa")
+  createdAt                DateTime @default(now()) @map("ngay_tao")
+  updatedAt                DateTime @updatedAt @map("ngay_cap_nhat")
+  user                     user     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([customCode])
+  @@index([systemCode])
+  @@index([tier])
+  @@index([isLocked])
+  @@map("ho_so_gioi_thieu")
+}
+
+/// Quan hệ ai giới thiệu ai
+model referralrelation {
+  id                Int                   @id @default(autoincrement()) @map("ma_quan_he")
+  referrerUserId    Int                   @map("ma_nguoi_gioi_thieu")
+  referredUserId    Int                   @unique @map("ma_nguoi_duoc_gioi_thieu")
+  referralCodeUsed  String                @db.VarChar(20) @map("ma_da_su_dung")
+  source            String                @default("LINK") @db.VarChar(10) @map("nguon_gioi_thieu")
+  status            String                @default("SIGNED_UP") @db.VarChar(15) @map("trang_thai")
+  ip                String?               @db.VarChar(64) @map("dia_chi_ip")
+  userAgent         String?               @db.Text @map("thiet_bi")
+  deviceFingerprint String?               @db.VarChar(128) @map("van_tay_thiet_bi")
+  note              String?               @db.Text @map("ghi_chu")
+  qualifiedAt       DateTime?             @map("ngay_hop_le")
+  lockedAt          DateTime?             @map("ngay_khoa")
+  createdAt         DateTime              @default(now()) @map("ngay_tao")
+  updatedAt         DateTime              @updatedAt @map("ngay_cap_nhat")
+  fraudSignals      referralfraudsignal[]
+  referred          user                  @relation("ReferralReferred", fields: [referredUserId], references: [id], onDelete: Cascade)
+  referrer          user                  @relation("ReferralReferrer", fields: [referrerUserId], references: [id], onDelete: Cascade)
+
+  @@index([referrerUserId])
+  @@index([referredUserId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("quan_he_gioi_thieu")
+}
+
+/// Hoa hồng từ đơn hàng của người được giới thiệu
+model referralcommission {
+  id               Int       @id @default(autoincrement()) @map("ma_hoa_hong")
+  referrerUserId   Int       @map("ma_nguoi_gioi_thieu")
+  referredUserId   Int       @map("ma_nguoi_duoc_gioi_thieu")
+  orderId          Int       @map("ma_don_hang")
+  rate             Decimal   @db.Decimal(5, 4) @map("ty_le_hoa_hong")
+  baseAmount       Decimal   @db.Decimal(12, 2) @map("so_tien_goc")
+  commissionAmount Decimal   @db.Decimal(12, 2) @map("so_tien_hoa_hong")
+  status           String    @default("PENDING") @db.VarChar(12) @map("trang_thai")
+  holdUntil        DateTime? @map("giu_den_ngay")
+  availableAt      DateTime? @map("ngay_kha_dung")
+  voidReason       String?   @db.Text @map("ly_do_huy")
+  createdAt        DateTime  @default(now()) @map("ngay_tao")
+  updatedAt        DateTime  @updatedAt @map("ngay_cap_nhat")
+  order            order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  referred         user      @relation("CommissionReferred", fields: [referredUserId], references: [id], onDelete: Cascade)
+  referrer         user      @relation("CommissionReferrer", fields: [referrerUserId], references: [id], onDelete: Cascade)
+
+  @@unique([orderId, referrerUserId])
+  @@index([referrerUserId])
+  @@index([referredUserId])
+  @@index([orderId])
+  @@index([status])
+  @@index([holdUntil])
+  @@map("hoa_hong_gioi_thieu")
+}
+
+/// Mốc thành tích giới thiệu và phần thưởng tương ứng
+model referralmilestone {
+  id               Int                       @id @default(autoincrement()) @map("ma_moc_thanh_tich")
+  milestone        Int                       @unique @map("so_moc")
+  rewardType       String                    @db.VarChar(20) @map("loai_phan_thuong")
+  rewardValue      Decimal                   @db.Decimal(12, 2) @map("gia_tri_phan_thuong")
+  label            String?                   @db.VarChar(100) @map("nhan_hieu")
+  labelEn          String?                   @db.VarChar(100) @map("nhan_hieu_en")
+  description      String?                   @db.Text @map("mo_ta")
+  descriptionEn    String?                   @db.Text @map("mo_ta_en")
+  voucherConfig    String?                   @db.Text @map("cau_hinh_voucher")
+  isActive         Boolean                   @default(true) @map("dang_hoat_dong")
+  sortOrder        Int                       @default(0) @map("thu_tu_hien_thi")
+  createdAt        DateTime                  @default(now()) @map("ngay_tao")
+  updatedAt        DateTime                  @updatedAt @map("ngay_cap_nhat")
+  milestoneRewards referralmilestonereward[]
+
+  @@index([isActive])
+  @@index([sortOrder])
+  @@map("moc_thanh_tich_gioi_thieu")
+}
+
+/// Phần thưởng đã được trao khi đạt mốc giới thiệu
+model referralmilestonereward {
+  id          Int               @id @default(autoincrement()) @map("ma_phan_thuong")
+  userId      Int               @map("ma_nguoi_dung")
+  milestoneId Int               @map("ma_moc_thanh_tich")
+  rewardType  String            @db.VarChar(20) @map("loai_phan_thuong")
+  rewardValue Decimal           @db.Decimal(12, 2) @map("gia_tri_phan_thuong")
+  couponId    Int?              @map("ma_phieu_giam_gia")
+  status      String            @default("GRANTED") @db.VarChar(12) @map("trang_thai")
+  grantedAt   DateTime          @default(now()) @map("ngay_trao_thuong")
+  createdAt   DateTime          @default(now()) @map("ngay_tao")
+  updatedAt   DateTime          @updatedAt @map("ngay_cap_nhat")
+  coupon      coupon?           @relation(fields: [couponId], references: [id])
+  milestone   referralmilestone @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
+  user        user              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, milestoneId])
+  @@index([userId])
+  @@index([milestoneId])
+  @@index([status])
+  @@index([couponId])
+  @@map("phan_thuong_moc_gioi_thieu")
+}
+
+/// Yêu cầu rút tiền hoa hồng về tài khoản ngân hàng
+model referralcashout {
+  id              Int       @id @default(autoincrement()) @map("ma_yeu_cau_rut_tien")
+  userId          Int       @map("ma_nguoi_dung")
+  amount          Decimal   @db.Decimal(12, 2) @map("so_tien")
+  method          String    @db.VarChar(20) @map("phuong_thuc")
+  destinationData String?   @db.Text @map("thong_tin_nhan_tien")
+  status          String    @default("PENDING") @db.VarChar(12) @map("trang_thai")
+  adminNote       String?   @db.Text @map("ghi_chu_admin")
+  processedBy     Int?      @map("ma_nguoi_xu_ly")
+  processedAt     DateTime? @map("ngay_xu_ly")
+  createdAt       DateTime  @default(now()) @map("ngay_tao")
+  updatedAt       DateTime  @updatedAt @map("ngay_cap_nhat")
+  user            user      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("yeu_cau_rut_tien_gioi_thieu")
+}
+
+/// Nhật ký kiểm toán hệ thống giới thiệu (audit log)
+model referralauditlog {
+  id           Int      @id @default(autoincrement()) @map("ma_nhat_ky")
+  actorUserId  Int?     @map("ma_nguoi_thuc_hien")
+  targetUserId Int?     @map("ma_nguoi_bi_tac_dong")
+  action       String   @db.VarChar(50) @map("hanh_dong")
+  entityType   String?  @db.VarChar(30) @map("loai_thuc_the")
+  entityId     Int?     @map("ma_thuc_the")
+  beforeData   String?  @db.LongText @map("du_lieu_truoc")
+  afterData    String?  @db.LongText @map("du_lieu_sau")
+  metadata     String?  @db.Text @map("thong_tin_bo_sung")
+  createdAt    DateTime @default(now()) @map("ngay_tao")
+  actor        user?    @relation("AuditActor", fields: [actorUserId], references: [id])
+  target       user?    @relation("AuditTarget", fields: [targetUserId], references: [id])
+
+  @@index([actorUserId])
+  @@index([targetUserId])
+  @@index([action])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@map("nhat_ky_he_thong_gioi_thieu")
+}
+
+/// Tín hiệu gian lận trong quan hệ giới thiệu
+model referralfraudsignal {
+  id         Int              @id @default(autoincrement()) @map("ma_tin_hieu")
+  relationId Int              @map("ma_quan_he")
+  signalType String           @db.VarChar(30) @map("loai_tin_hieu")
+  severity   String           @default("MEDIUM") @db.VarChar(10) @map("muc_do_nghiem_trong")
+  score      Int              @default(10) @map("diem_gian_lan")
+  details    String?          @db.Text @map("chi_tiet")
+  createdAt  DateTime         @default(now()) @map("ngay_tao")
+  relation   referralrelation @relation(fields: [relationId], references: [id], onDelete: Cascade)
+
+  @@index([relationId])
+  @@index([signalType])
+  @@index([severity])
+  @@index([createdAt])
+  @@map("tin_hieu_gian_lan_gioi_thieu")
+}
+
+/// Giao dịch ví hoa hồng giới thiệu
+model referralwallettx {
+  id           Int      @id @default(autoincrement()) @map("ma_giao_dich")
+  userId       Int      @map("ma_nguoi_dung")
+  type         String   @db.VarChar(20) @map("loai_giao_dich")
+  sourceType   String?  @db.VarChar(20) @map("loai_nguon_giao_dich")
+  sourceId     Int?     @map("ma_nguon_giao_dich")
+  direction    String   @db.VarChar(6) @map("chieu_giao_dich")
+  amount       Decimal  @db.Decimal(12, 2) @map("so_tien")
+  balanceAfter Decimal  @db.Decimal(12, 2) @map("so_du_sau_giao_dich")
+  status       String   @default("COMPLETED") @db.VarChar(12) @map("trang_thai")
+  description  String?  @db.Text @map("mo_ta")
+  createdAt    DateTime @default(now()) @map("ngay_tao")
+  user         user     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([type])
+  @@index([direction])
+  @@index([createdAt])
+  @@map("giao_dich_vi_gioi_thieu")
+}
+
+// ============================================================
+// TRANG CHỦ - CẤU HÌNH SECTION
+// ============================================================
+
+/// Cấu hình các section hiển thị trên trang chủ
+model homepageSection {
+  id          Int       @id @default(autoincrement()) @map("ma_section")
+  key         String    @unique @db.VarChar(100) @map("khoa_section")
+  title       String?   @db.VarChar(255) @map("tieu_de")
+  subtitle    String?   @db.VarChar(500) @map("phu_de")
+  description String?   @db.Text @map("mo_ta")
+  config      Json?     @map("cau_hinh")
+  type        String    @default("grid") @db.VarChar(50) @map("loai_section")
+  isActive    Boolean   @default(true) @map("kich_hoat")
+  position    Int       @default(0) @map("vi_tri")
+  limit       Int       @default(10) @map("gioi_han_hien_thi")
+  startAt     DateTime? @map("thoi_gian_bat_dau")
+  endAt       DateTime? @map("thoi_gian_ket_thuc")
+  createdAt   DateTime  @default(now()) @map("ngay_tao")
+  updatedAt   DateTime  @default(now()) @updatedAt @map("ngay_cap_nhat")
+
+  @@index([isActive])
+  @@index([position])
+  @@map("khung_trang_chu")
+}
