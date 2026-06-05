@@ -11,7 +11,7 @@ import { authOptions } from "@/lib/auth";
 import { logger } from "@/lib/logger";
 import prisma from "@/lib/prisma";
 import { ORDER_STATUS, normalizeOrderStatus } from "@/lib/commerce";
-import { applyRateLimit, apiRateLimit, getRateLimitIdentifier } from "@/lib/ratelimit";
+import { applyRateLimit, analyticsRateLimit, getRateLimitIdentifier } from "@/lib/ratelimit";
 
 interface OrderGroupBy {
   productId: number;
@@ -26,7 +26,7 @@ const REVENUE_STATUSES = new Set<string>([
 ]);
 
 export async function GET(req: NextRequest) {
-  const rl = await applyRateLimit(getRateLimitIdentifier(req), apiRateLimit, { windowMs: 60000, maxRequests: 20 });
+  const rl = await applyRateLimit(getRateLimitIdentifier(req), analyticsRateLimit, { windowMs: 60000, maxRequests: 20 });
   if (!rl.success) return rl.error!;
   const session = await getServerSession(authOptions);
 

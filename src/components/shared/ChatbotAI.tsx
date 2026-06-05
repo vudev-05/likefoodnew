@@ -78,7 +78,13 @@ function formatTime(date: Date) {
 }
 
 function renderMarkdown(text: string) {
-  const rawHtml = text
+  let processedText = text;
+  if (typeof window !== "undefined") {
+    // Thay thế các tên miền tuyệt đối của likefood bằng origin hiện tại để link hoạt động đúng theo môi trường (localhost, staging, prod...)
+    processedText = text.replace(/https?:\/\/(?:www\.)?likefood\.(?:app|com|vn)/gi, window.location.origin);
+  }
+
+  const rawHtml = processedText
     // Links: [text](url)
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" class="text-emerald-600 underline hover:text-emerald-700" target="_blank" rel="noopener noreferrer">$1</a>')
     .replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold">$1</strong>')
@@ -814,7 +820,7 @@ export default function ChatbotAI() {
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 onClick={closeAssistant}
-                className="fixed inset-0 z-[109] bg-black/20"
+                className="fixed inset-0 z-[140] bg-black/20"
               />
 
               {/* Chat panel */}
@@ -823,10 +829,10 @@ export default function ChatbotAI() {
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: 20, scale: 0.95 }}
                 transition={{ type: "spring", damping: 25, stiffness: 350 }}
-                className="fixed bottom-0 left-0 right-0 z-[110] flex h-[75vh] max-h-[600px] w-full flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:bottom-4 sm:left-auto sm:right-4 sm:h-[600px] sm:max-h-none sm:w-[400px] sm:rounded-2xl sm:border sm:border-slate-200/80"
+                className="fixed bottom-[5.5rem] left-4 right-4 z-[150] flex h-[calc(75vh-5.5rem)] max-h-[520px] w-auto flex-col overflow-hidden rounded-2xl bg-white shadow-2xl border border-slate-200/80 sm:bottom-4 sm:left-auto sm:right-4 sm:h-[600px] sm:max-h-none sm:w-[400px] sm:rounded-2xl"
               >
                 {/* ─── Drag Handle (mobile) ─── */}
-                <div className="flex justify-center pt-2 pb-1 sm:hidden bg-gradient-to-r from-emerald-600/5 to-teal-600/5">
+                <div className="hidden">
                   <div className="w-10 h-1 rounded-full bg-slate-300" />
                 </div>
 
@@ -1004,7 +1010,7 @@ export default function ChatbotAI() {
                     </div>
 
                     {/* ─── Input Area ─── */}
-                    <div className="shrink-0 border-t border-slate-100 bg-white px-3 py-2.5 pb-safe">
+                    <div className="shrink-0 border-t border-slate-100 bg-white px-3 py-2.5">
                       <div className="flex items-end gap-2">
                         <button
                           onClick={resetConversation}

@@ -63,7 +63,7 @@ export const loginRateLimit = redis
         analytics: true,
         prefix: 'ratelimit:login',
     })
-    : null;
+    : { prefix: 'ratelimit:login' } as any;
 
 /**
  * Register Rate Limiter
@@ -76,7 +76,7 @@ export const registerRateLimit = redis
         analytics: true,
         prefix: 'ratelimit:register',
     })
-    : null;
+    : { prefix: 'ratelimit:register' } as any;
 
 /**
  * Checkout/Order Rate Limiter
@@ -89,7 +89,7 @@ export const checkoutRateLimit = redis
         analytics: true,
         prefix: 'ratelimit:checkout',
     })
-    : null;
+    : { prefix: 'ratelimit:checkout' } as any;
 
 /**
  * General API Rate Limiter
@@ -102,7 +102,20 @@ export const apiRateLimit = redis
         analytics: true,
         prefix: 'ratelimit:api',
     })
-    : null;
+    : { prefix: 'ratelimit:api' } as any;
+
+/**
+ * Analytics Rate Limiter
+ * 20 requests per minute (heavier queries)
+ */
+export const analyticsRateLimit = redis
+    ? new Ratelimit({
+        redis,
+        limiter: Ratelimit.slidingWindow(20, '1 m'),
+        analytics: true,
+        prefix: 'ratelimit:analytics',
+    })
+    : { prefix: 'ratelimit:analytics' } as any;
 
 /**
  * OTP Verification Rate Limiter
@@ -115,7 +128,7 @@ export const otpRateLimit = redis
         analytics: true,
         prefix: 'ratelimit:otp',
     })
-    : null;
+    : { prefix: 'ratelimit:otp' } as any;
 
 /**
  * Admin 2FA Verify Rate Limiter (stricter)
@@ -128,7 +141,7 @@ export const admin2FARateLimit = redis
         analytics: true,
         prefix: 'ratelimit:admin2fa',
     })
-    : null;
+    : { prefix: 'ratelimit:admin2fa' } as any;
 
 /**
  * Helper function to apply rate limiting
@@ -140,9 +153,9 @@ export async function applyRateLimit(
     config?: { windowMs: number; maxRequests: number }
 ): Promise<{ success: boolean; error?: Response }> {
     // If Redis configured, use Upstash
-    if (limiter) {
+    if (limiter && 'limit' in limiter && typeof (limiter as any).limit === 'function') {
         try {
-            const { success, limit, remaining, reset } = await limiter.limit(identifier);
+            const { success, limit, remaining, reset } = await (limiter as Ratelimit).limit(identifier);
 
             if (!success) {
                 const retryAfter = Math.ceil((reset - Date.now()) / 1000);

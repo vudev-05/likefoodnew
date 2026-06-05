@@ -30,8 +30,10 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
-.env*
+# env files - keep .env.example but exclude real env files
+.env
+.env.local
+.env.production
 
 # vercel
 .vercel
@@ -56,5 +58,6 @@ coverage/
 # deployment
 logs/
 nginx/ssl/
-.env.production
+# .env.production is excluded above in env files section
+scripts/setup-vps-full.sh
 

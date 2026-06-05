@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 /**
  * LIKEFOOD — AI Command Center
@@ -32,7 +32,8 @@ import {
   User,
   UserSearch,
   Users,
-  Zap } from "lucide-react";
+  Zap
+} from "lucide-react";
 import { toast } from "sonner";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -154,15 +155,12 @@ interface Message {
   content: string;
 }
 
-type TabId = "overview" | "realtime" | "prospects" | "profiles" | "sales" | "behavior" | "chat";
+type TabId = "overview" | "prospects" | "behavior" | "chat";
 
 const TABS: { id: TabId; label: string; icon: typeof Brain }[] = [
   { id: "overview", label: "Tổng quan", icon: Brain },
-  { id: "realtime", label: "Real-time", icon: Activity },
   { id: "behavior", label: "Hành vi", icon: TrendingUp },
   { id: "prospects", label: "Tiềm năng", icon: UserSearch },
-  { id: "profiles", label: "Hồ sơ KH", icon: User },
-  { id: "sales", label: "AI Bán hàng", icon: Target },
   { id: "chat", label: "Chat AI", icon: Bot },
 ];
 
@@ -423,18 +421,12 @@ export default function AICommandCenter() {
   // Initial load
   useEffect(() => { void loadOverviewData(); }, [loadOverviewData]);
 
-  // Auto-refresh visitors every 30s when on realtime tab
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  // Load data for active tabs
   useEffect(() => {
-    if (activeTab === "realtime") {
-      void loadVisitors();
-      intervalRef.current = setInterval(() => { void loadVisitors(); }, 30000);
-      return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
-    }
     if (activeTab === "prospects") {
       void loadProspects();
     }
-  }, [activeTab, loadVisitors, loadProspects]);
+  }, [activeTab, loadProspects]);
 
   // Debounced customer search
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -506,11 +498,10 @@ export default function AICommandCenter() {
               key={tab.id}
               type="button"
               onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-2 rounded-lg px-4 py-2.5 text-xs font-bold uppercase tracking-wider transition ${
-                activeTab === tab.id
-                  ? "bg-emerald-500 text-white shadow-lg shadow-teal-600/20"
-                  : "text-slate-500 hover:text-slate-800 hover:bg-white/50"
-              }`}
+              className={`flex items-center gap-2 rounded-lg px-4 py-2.5 text-xs font-bold uppercase tracking-wider transition ${activeTab === tab.id
+                ? "bg-emerald-500 text-white shadow-lg shadow-teal-600/20"
+                : "text-slate-500 hover:text-slate-800 hover:bg-white/50"
+                }`}
             >
               <Icon className="h-3.5 w-3.5" />
               {tab.label}
@@ -521,29 +512,8 @@ export default function AICommandCenter() {
 
       {/* Tab Content */}
       {activeTab === "overview" && <OverviewTab insights={insights} summary={summary} forecasts={forecasts} segments={segments} hotLeads={hotLeads} />}
-      {activeTab === "realtime" && <RealTimeTab visitors={visitors} isLoading={isLoadingVisitors} onRefresh={loadVisitors} />}
       {activeTab === "behavior" && <BehaviorTab />}
       {activeTab === "prospects" && <ProspectsTab prospects={prospects} isLoading={isLoadingProspects} onRefresh={loadProspects} />}
-      {activeTab === "profiles" && (
-        <ProfilesTab
-          search={profileSearch}
-          onSearchChange={setProfileSearch}
-          searchResults={profileSearchResults}
-          selectedProfile={selectedProfile}
-          isLoading={isLoadingProfile}
-          onSelectCustomer={loadProfile}
-        />
-      )}
-      {activeTab === "sales" && (
-        <SalesTab
-          search={profileSearch}
-          onSearchChange={setProfileSearch}
-          searchResults={profileSearchResults}
-          salesRec={salesRec}
-          isLoading={isLoadingSales}
-          onSelectCustomer={(id) => { void loadSalesRec(id); }}
-        />
-      )}
       {activeTab === "chat" && (
         <ChatTab
           messages={messages}
@@ -632,13 +602,12 @@ function OverviewTab({
                     <p className="truncate text-sm font-semibold text-slate-700">{item.productName}</p>
                     <p className="text-xs text-slate-400">Tồn: {item.currentStock} · Nhập: {item.recommendedRestock}</p>
                   </div>
-                  <span className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase ${
-                    item.daysUntilStockout < 0 ? "bg-slate-100/50 text-slate-500" :
+                  <span className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase ${item.daysUntilStockout < 0 ? "bg-slate-100/50 text-slate-500" :
                     item.daysUntilStockout < 7 ? "bg-rose-500/20 text-rose-400" :
-                    item.daysUntilStockout < 14 ? "bg-amber-500/20 text-amber-600" :
-                    item.daysUntilStockout < 30 ? "bg-blue-500/20 text-blue-600" :
-                    "bg-emerald-500/20 text-emerald-600"
-                  }`}>
+                      item.daysUntilStockout < 14 ? "bg-amber-500/20 text-amber-600" :
+                        item.daysUntilStockout < 30 ? "bg-blue-500/20 text-blue-600" :
+                          "bg-emerald-500/20 text-emerald-600"
+                    }`}>
                     {item.daysUntilStockout < 0 ? "Ổn định" : `${item.daysUntilStockout} ngày`}
                   </span>
                 </div>
@@ -835,11 +804,10 @@ function ProspectsTab({ prospects, isLoading, onRefresh }: { prospects: Prospect
                     className="flex w-full items-center gap-4 p-4 text-left transition hover:bg-white/30"
                   >
                     {/* Avatar */}
-                    <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-base font-bold ${
-                      prospect.prospectScore >= 70 ? "bg-gradient-to-br from-rose-500 to-orange-500 text-white" :
+                    <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-base font-bold ${prospect.prospectScore >= 70 ? "bg-gradient-to-br from-rose-500 to-orange-500 text-white" :
                       prospect.prospectScore >= 50 ? "bg-gradient-to-br from-amber-500 to-yellow-500 text-white" :
-                      "bg-gradient-to-br from-teal-500 to-blue-500 text-white"
-                    }`}>
+                        "bg-gradient-to-br from-teal-500 to-blue-500 text-white"
+                      }`}>
                       {prospect.avatarInitial}
                     </div>
 
@@ -1196,11 +1164,10 @@ function ChatTab({
       <div className="max-h-[500px] space-y-3 overflow-y-auto rounded-xl border border-slate-200/50 bg-slate-50/50 p-4">
         {messages.map((msg) => (
           <div key={msg.id} className={`flex ${msg.role === "assistant" ? "justify-start" : "justify-end"}`}>
-            <div className={`max-w-[85%] rounded-xl px-4 py-3 text-sm leading-6 ${
-              msg.role === "assistant"
-                ? "border border-slate-200 bg-white/50 text-slate-700"
-                : "bg-emerald-500 text-white"
-            }`}>
+            <div className={`max-w-[85%] rounded-xl px-4 py-3 text-sm leading-6 ${msg.role === "assistant"
+              ? "border border-slate-200 bg-white/50 text-slate-700"
+              : "bg-emerald-500 text-white"
+              }`}>
               <p className="whitespace-pre-wrap">{msg.content}</p>
             </div>
           </div>
@@ -1253,11 +1220,10 @@ function CustomerProfileCard({ profile, onClose }: { profile: SmartProfile; onCl
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <span className={`rounded-full px-3 py-1 text-xs font-bold ${
-              profile.segment === "VIP" ? "bg-amber-500/20 text-amber-600" :
+            <span className={`rounded-full px-3 py-1 text-xs font-bold ${profile.segment === "VIP" ? "bg-amber-500/20 text-amber-600" :
               profile.segment === "Premium" ? "bg-purple-500/20 text-purple-600" :
-              "bg-slate-100/50 text-slate-500"
-            }`}>
+                "bg-slate-100/50 text-slate-500"
+              }`}>
               {profile.segment}
             </span>
             <button onClick={onClose} className="text-slate-400 hover:text-slate-600">✕</button>
@@ -1366,11 +1332,10 @@ function SalesRecommendationCard({ rec }: { rec: SalesRecommendation }) {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${
-              rec.urgencyLevel === "high" ? "bg-rose-500/20 text-rose-400" :
+            <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${rec.urgencyLevel === "high" ? "bg-rose-500/20 text-rose-400" :
               rec.urgencyLevel === "medium" ? "bg-amber-500/20 text-amber-600" :
-              "bg-slate-100/50 text-slate-500"
-            }`}>
+                "bg-slate-100/50 text-slate-500"
+              }`}>
               <Target className="h-5 w-5" />
             </div>
             <div>
@@ -1378,11 +1343,10 @@ function SalesRecommendationCard({ rec }: { rec: SalesRecommendation }) {
               <p className="text-xs text-slate-400">{rec.customerInsight}</p>
             </div>
           </div>
-          <span className={`rounded-full px-3 py-1 text-xs font-bold uppercase ${
-            rec.urgencyLevel === "high" ? "bg-rose-500/20 text-rose-400" :
+          <span className={`rounded-full px-3 py-1 text-xs font-bold uppercase ${rec.urgencyLevel === "high" ? "bg-rose-500/20 text-rose-400" :
             rec.urgencyLevel === "medium" ? "bg-amber-500/20 text-amber-600" :
-            "bg-slate-100/50 text-slate-500"
-          }`}>
+              "bg-slate-100/50 text-slate-500"
+            }`}>
             {rec.urgencyLevel === "high" ? "Rất cao" : rec.urgencyLevel === "medium" ? "Trung bình" : "Thấp"}
           </span>
         </div>
@@ -1483,7 +1447,7 @@ function ScoreBadge({ score }: { score: number }) {
 
 function InsightBadge({ type, metric }: { type: string; metric?: string }) {
   const cls = type === "warning" ? "bg-amber-500/20 text-amber-600" :
-              type === "success" ? "bg-emerald-500/20 text-emerald-600" :
-              "bg-sky-500/20 text-sky-400";
+    type === "success" ? "bg-emerald-500/20 text-emerald-600" :
+      "bg-sky-500/20 text-sky-400";
   return <span className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase ${cls}`}>{metric || type}</span>;
 }

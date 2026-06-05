@@ -46,79 +46,80 @@ export async function GET(req: NextRequest) {
             return NextResponse.json({ hints: [] });
         }
 
-        const like = `%${q}%`;
-        const likeLower = `%${q.toLowerCase()}%`;
-        const strippedQuery = stripDiacritics(q.toLowerCase());
-        const likeStripped = `%${strippedQuery}%`;
+        const cleanSearch = q.trim();
+        const words = cleanSearch.split(/\s+/).filter(Boolean);
+        let products: any[] = [];
 
-        // Strategy 1: Exact direct match with diacritics using BINARY collation (Accent-Sensitive & Case-Insensitive via LOWER)
-        let products = await prisma.$queryRaw<Array<{
-            id: number;
-            name: string;
-            category: string | null;
-            price: number;
-            image: string | null;
-            slug: string;
-        }>>(Prisma.sql`
-            SELECT id, name, category, price, image, COALESCE(slug, CAST(id AS CHAR)) AS slug
-            FROM product
-            WHERE
-                LOWER(name) COLLATE utf8mb4_bin LIKE ${likeLower}
-            AND inventory > 0
-            AND isDeleted = 0
-            AND isVisible = 1
-            ORDER BY 
-                CASE WHEN LOWER(name) COLLATE utf8mb4_bin LIKE ${`${q.toLowerCase()}%`} THEN 0 ELSE 1 END,
-                soldCount DESC
-            LIMIT 10
-        `);
+        if (words.length > 0) {
+            const searchConditions = words.map(word => {
+                const stripped = word
+                    .normalize("NFD")
+                    .replace(/[\u0300-\u036f]/g, "")
+                    .replace(/đ/g, "d")
+                    .replace(/Đ/g, "D");
+                return {
+                    OR: [
+                        { name: { contains: word } },
+                        { name: { contains: stripped } },
+                        { searchKeywords: { contains: word } },
+                        { searchKeywords: { contains: stripped } },
+                        { slug: { contains: stripped } }
+                    ]
+                };
+            });
 
-        // Detect if query contains Vietnamese diacritics
-        const hasDiacritics = /[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđÀÁẠẢÃÂẦẤẬẨẪĂẰẮẶẲẴÈÉẸẺẼÊỀẾỆỂỄÌÍỊỈĨÒÓỌỎÕÔỒỐỘỔỖƠỜỚỢỞỠÙÚỤỦŨƯỪỨỰỬỮỲÝỴỶỸĐ]/.test(q);
-
-        // Strategy 2: Fuzzy fallback — ONLY IF NO DIACRITICS IN QUERY (User typed "ca kho", not "cá khô")
-        if (products.length === 0 && !hasDiacritics && q.length >= 2) {
-            products = await prisma.$queryRaw<Array<{
-                id: number;
-                name: string;
-                category: string | null;
-                price: number;
-                image: string | null;
-                slug: string;
-            }>>(Prisma.sql`
-                SELECT id, name, category, price, image, COALESCE(slug, CAST(id AS CHAR)) AS slug
-                FROM product
-                WHERE
-                    name COLLATE utf8mb4_general_ci LIKE ${like}
-                AND inventory > 0
-                AND isDeleted = 0
-                AND isVisible = 1
-                ORDER BY soldCount DESC
-                LIMIT 10
-            `);
+            products = await prisma.product.findMany({
+                where: {
+                    AND: searchConditions,
+                    inventory: { gt: 0 },
+                    isDeleted: false,
+                    isVisible: true,
+                },
+                select: {
+                    id: true,
+                    name: true,
+                    category: true,
+                    price: true,
+                    image: true,
+                    slug: true,
+                },
+                orderBy: {
+                    soldCount: "desc"
+                },
+                take: 10,
+            });
         }
 
-        // Strategy 3: If still no results, try popular products as suggestions
+        // Strategy 2: If still no results, try popular products as suggestions
         if (products.length === 0 && q.length >= 2) {
-            products = await prisma.$queryRaw<Array<{
-                id: number;
-                name: string;
-                category: string | null;
-                price: number;
-                image: string | null;
-                slug: string;
-            }>>(Prisma.sql`
-                SELECT id, name, category, price, image, COALESCE(slug, CAST(id AS CHAR)) AS slug
-                FROM product
-                WHERE inventory > 0
-                AND isDeleted = 0
-                AND isVisible = 1
-                ORDER BY soldCount DESC
-                LIMIT 6
-            `);
+            products = await prisma.product.findMany({
+                where: {
+                    inventory: { gt: 0 },
+                    isDeleted: false,
+                    isVisible: true,
+                },
+                select: {
+                    id: true,
+                    name: true,
+                    category: true,
+                    price: true,
+                    image: true,
+                    slug: true,
+                },
+                orderBy: {
+                    soldCount: "desc"
+                },
+                take: 6,
+            });
         }
 
-        const res = NextResponse.json({ hints: products });
+        // Chuẩn hóa trường slug để đảm bảo an toàn nếu slug bị null
+        const hints = products.map(p => ({
+            ...p,
+            slug: p.slug || String(p.id)
+        }));
+
+        const res = NextResponse.json({ hints });
         res.headers.set("Cache-Control", "public, s-maxage=30, stale-while-revalidate=60");
         return res;
     } catch {

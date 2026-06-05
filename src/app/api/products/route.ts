@@ -114,46 +114,30 @@ export async function GET(req: Request) {
         where.isVisible = true;
 
         if (search) {
-            // Search by product name only
-            // LOWER() + utf8mb4_bin for accent-sensitive + case-insensitive
-            const like = `%${search}%`;
-            const likeLower = `%${search.toLowerCase()}%`;
-            const { Prisma } = await import("../../../generated/client");
-
-            // Detect if query contains Vietnamese diacritics
-            const hasDiacritics = /[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđÀÁẠẢÃÂẦẤẬẨẪĂẰẮẶẲẴÈÉẸẺẼÊỀẾỆỂỄÌÍỊỈĨÒÓỌỎÕÔỒỐỘỔỖƠỜỚỢỞỠÙÚỤỦŨƯỪỨỰỬỮỲÝỴỶỸĐ]/.test(search);
-
-            const matched = await prisma.$queryRaw<Array<{ id: number }>>(Prisma.sql`
-                SELECT id FROM product
-                WHERE (
-                    LOWER(name) COLLATE utf8mb4_bin LIKE ${likeLower}
-                    OR LOWER(searchKeywords) COLLATE utf8mb4_bin LIKE ${likeLower}
-                )
-                AND isDeleted = 0 AND isVisible = 1
-            `);
-
-            if (matched.length === 0 && !hasDiacritics) {
-                // Fuzzy fallback: accent-insensitive (handles 'ca kho' → 'Cá khô')
-                const fuzzyMatched = await prisma.$queryRaw<Array<{ id: number }>>(Prisma.sql`
-                    SELECT id FROM product
-                    WHERE (
-                        name COLLATE utf8mb4_general_ci LIKE ${like}
-                        OR slug COLLATE utf8mb4_general_ci LIKE ${like}
-                        OR searchKeywords COLLATE utf8mb4_general_ci LIKE ${like}
-                    )
-                    AND isDeleted = 0 AND isVisible = 1
-                    LIMIT 50
-                `);
-
-                if (fuzzyMatched.length === 0) {
-                    return NextResponse.json({ products: [], total: 0, page, limit, totalPages: 0 });
-                }
-                andConditions.push({ id: { in: fuzzyMatched.map(r => r.id) } });
-            } else if (matched.length === 0) {
-                // Query has diacritics but no results — return empty
-                return NextResponse.json({ products: [], total: 0, page, limit, totalPages: 0 });
-            } else {
-                andConditions.push({ id: { in: matched.map(r => r.id) } });
+            const cleanSearch = search.trim();
+            const words = cleanSearch.split(/\s+/).filter(Boolean);
+            
+            if (words.length > 0) {
+                const searchConditions = words.map(word => {
+                    const stripped = word
+                        .normalize("NFD")
+                        .replace(/[\u0300-\u036f]/g, "")
+                        .replace(/đ/g, "d")
+                        .replace(/Đ/g, "D");
+                    return {
+                        OR: [
+                            { name: { contains: word } },
+                            { name: { contains: stripped } },
+                            { searchKeywords: { contains: word } },
+                            { searchKeywords: { contains: stripped } },
+                            { slug: { contains: stripped } }
+                        ]
+                    };
+                });
+                
+                andConditions.push({
+                    AND: searchConditions
+                });
             }
         }
 

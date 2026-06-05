@@ -202,6 +202,10 @@ export default function HomeSearchBar() {
                                             e.preventDefault();
                                             handleSuggestionClick(suggestion);
                                         }}
+                                        onTouchStart={(e) => {
+                                            e.preventDefault();
+                                            handleSuggestionClick(suggestion);
+                                        }}
                                         className="w-full px-6 py-4 text-left hover:bg-emerald-50 transition-colors flex items-center gap-4 border-b border-slate-50 last:border-0 group"
                                     >
                                         <Search className="w-5 h-5 text-slate-400 group-hover:text-emerald-500 transition-colors" />
@@ -236,6 +240,10 @@ export default function HomeSearchBar() {
                                     key={search}
                                     type="button"
                                     onMouseDown={(e) => {
+                                        e.preventDefault();
+                                        handleSearch(search);
+                                    }}
+                                    onTouchStart={(e) => {
                                         e.preventDefault();
                                         handleSearch(search);
                                     }}

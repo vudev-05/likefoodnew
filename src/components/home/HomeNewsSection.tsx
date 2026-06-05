@@ -17,19 +17,22 @@ interface Post {
 }
 
 function VerticalPostCard({ post, language, isHiddenOnMobile }: { post: Post; language: string; isHiddenOnMobile: boolean }) {
+    const [imgError, setImgError] = useState(false);
+    
     return (
         <Link
             href={`/posts/${post.slug}`}
             className={`group flex-col bg-white rounded-xl border border-slate-100 overflow-hidden hover:shadow-lg hover:shadow-emerald-500/10 hover:border-emerald-200 transition-all duration-300 ${isHiddenOnMobile ? 'hidden lg:flex' : 'flex'}`}
         >
             <div className="relative aspect-[4/3] w-full overflow-hidden bg-slate-50">
-                {post.image ? (
+                {post.image && !imgError ? (
                     <Image
                         src={post.image}
                         alt={post.title}
                         fill
                         className="object-cover group-hover:scale-105 transition-transform duration-500"
                         sizes="(max-width: 1024px) 33vw, 20vw"
+                        onError={() => setImgError(true)}
                     />
                 ) : (
                     <div className="w-full h-full flex items-center justify-center">
